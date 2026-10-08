@@ -7,7 +7,7 @@ namespace VeloxRouter\Sse;
 class SseStream
 {
     /**
-     * Set up required HTTP headers and clean output buffers to start the SSE stream.
+     * Prepara os headers HTTP e limpa os buffers de output para iniciar o stream.
      */
     public static function start(): void
     {
@@ -18,60 +18,89 @@ class SseStream
         header('Content-Type: text/event-stream');
         header('Cache-Control: no-cache');
         header('Connection: keep-alive');
-        header('X-Accel-Buffering: no'); // Disable Nginx buffering for real-time delivery
+        header('X-Accel-Buffering: no'); // Desativa o buffering do Nginx
 
         set_time_limit(0);
 
         if (ob_get_level() > 0) {
-            ob_end_clean();
+            @ob_end_clean();
         }
         
         flush();
     }
 
     /**
-     * Send a formatted message/event to the client.
-     *
-     * @param mixed       $data  Data to send (arrays/objects are automatically JSON encoded)
-     * @param string|null $event Optional custom event name
-     * @param string|null $id    Optional message ID
+     * Envia um evento formatado com base num objeto SseEvent.
      */
-    public static function send(mixed $data, ?string $event = null, ?string $id = null): void
+    public static function send(SseEvent $event): bool
     {
-        if ($id !== null) {
-            echo "id: {$id}\n";
+        if (self::isAborted()) {
+            return false;
         }
 
-        if ($event !== null) {
-            echo "event: {$event}\n";
+        $buffer = '';
+
+        if ($event->comment !== null) {
+            foreach (self::splitLines($event->comment) as $line) {
+                $buffer .= ": {$line}\n";
+            }
         }
 
-        $payload = is_string($data) ? $data : json_encode($data);
+        if ($event->id !== null) {
+            $buffer .= "id: {$event->id}\n";
+        }
+
+        if ($event->name !== null) {
+            $buffer .= "event: {$event->name}\n";
+        }
+
+        if ($event->retry !== null) {
+            $buffer .= "retry: {$event->retry}\n";
+        }
+
+        if ($event->data !== null) {
+            $payload = is_string($event->data) ? $event->data : json_encode($event->data);
+            foreach (self::splitLines($payload) as $line) {
+                $buffer .= "data: {$line}\n";
+            }
+        }
+
+        $buffer .= "\n";
+
+        echo $buffer;
         
-        // Each line of the payload must be prefixed with "data: "
-        foreach (explode("\n", $payload) as $line) {
-            echo "data: {$line}\n";
+        $flushed = @flush();
+        if ($flushed === false || self::isAborted()) {
+            return false;
         }
 
-        echo "\n"; // Mandatory empty line to finalize the SSE block
-        
-        flush();
+        return true;
     }
 
     /**
-     * Send a heartbeat ping signal to keep the connection alive against timeouts.
+     * Envia um sinal de heartbeat (ping) para manter a ligação viva.
      */
-    public static function ping(): void
+    public static function ping(): bool
     {
         echo ": ping\n\n";
-        flush();
+        $flushed = @flush();
+        
+        return !($flushed === false || self::isAborted());
     }
 
     /**
-     * Check if the client has aborted/closed the connection.
+     * Valida se o cliente cortou a ligação.
      */
     public static function isAborted(): bool
     {
-        return connection_aborted();
+        return connection_aborted() === 1;
+    }
+
+    private static function splitLines(string $value): array
+    {
+        if ($value === '') {
+            return [''];
+        }
+        return explode("\n", $value);
     }
 }
