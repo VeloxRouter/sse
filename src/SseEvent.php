@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace VeloxRouter\Sse;
 
-class SseEvent
+final readonly class SseEvent
 {
     public function __construct(
-        public readonly mixed $data,
-        public readonly ?string $name = null,
-        public readonly ?string $id = null,
-        public readonly ?int $retry = null,
-        public readonly ?string $comment = null
-    ) {}
+        public mixed $data,
+        public ?string $name = null,
+        public ?string $id = null,
+        public ?int $retry = null,
+        public ?string $comment = null,
+    ) {
+        if ($this->retry !== null && $this->retry < 0) {
+            throw new \InvalidArgumentException(
+                'SSE retry value cannot be negative.'
+            );
+        }
+    }
 }
